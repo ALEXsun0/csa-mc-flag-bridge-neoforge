@@ -1,0 +1,77 @@
+//! Ret2Shell checker template for CSA Minecraft Flag Bridge.
+//!
+//! environ() gives each Ret2Shell target container a dynamic flag and a token.
+//! The target container should register token -> flag to the shared Minecraft
+//! server through ret2shell/register-to-mc.sh or an equivalent HTTP request.
+
+use ret2api::audit;
+use ret2api::crypto;
+use ret2api::utils;
+
+const PREFIX = "flag";
+const TEMPLATE = "csa_minecraft_flag_bridge";
+
+// Replace all placeholders before publishing the challenge.
+// Keep these values out of public repositories.
+const ENCRYPT_KEY = "replace-with-a-random-24-byte-secret";
+const TOKEN_SALT = "replace-with-a-different-random-token-salt";
+const REGISTER_URL = "http://<minecraft-server-host>:18080/ret2shell/register";
+const REGISTER_SECRET = "replace-with-mc-mod-registration-secret";
+
+fn subject_id(user, team) {
+  if let Some(id) = team.id {
+    id
+  } else {
+    user.id
+  }
+}
+
+fn flag_for(id) {
+  let content = audit::encode(TEMPLATE, ENCRYPT_KEY, id);
+  utils::Flag::new().with_prefix(PREFIX).with_content(content).to_string()
+}
+
+fn token_for(id) {
+  crypto::Hash::sha256sum_str(`${TOKEN_SALT}:${id}`)
+}
+
+pub async fn check(bucket, user, team, submission) {
+  let submitted = utils::Flag::parse(submission.content)?;
+  if submitted.prefix() != PREFIX {
+    return Ok((false, `Wrong format! flag should be ${PREFIX}{...}`, None));
+  }
+
+  let id = subject_id(user, team);
+  let expected_content = audit::encode(TEMPLATE, ENCRYPT_KEY, id);
+  if expected_content == submitted.content() {
+    return Ok((true, "Correct!", None));
+  }
+
+  let decoded = audit::decode(TEMPLATE, ENCRYPT_KEY, submitted.content());
+  let peer_id = match decoded {
+    Ok(peer_id) => peer_id,
+    Err(_) => return Ok((false, "Incorrect!", None))
+  };
+
+  if let Some(team_id) = team.id {
+    if peer_id != team_id {
+      return Ok((false, "Incorrect!", Some(#{
+        peer_team: peer_id,
+        reason: `team ${team_id} may have submitted another team's flag`
+      })));
+    }
+  }
+
+  Ok((false, "Incorrect!", None))
+}
+
+pub async fn environ(bucket, user, team) {
+  let id = subject_id(user, team);
+  Ok(#{
+    FLAG: flag_for(id),
+    CSA_TOKEN: token_for(id),
+    CSA_REGISTER_URL: REGISTER_URL,
+    CSA_REGISTER_SECRET: REGISTER_SECRET,
+    CSA_REGISTER_TTL_SECONDS: "86400"
+  })
+}
