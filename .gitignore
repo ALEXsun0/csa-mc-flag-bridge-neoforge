@@ -1,0 +1,17 @@
+.gradle/
+build/
+*/build/
+*/run/
+
+.idea/
+.vscode/
+*.iml
+
+.DS_Store
+*.log
+*.tmp
+*.bak
+
+*.jar
+*.mrpack
+*.zip

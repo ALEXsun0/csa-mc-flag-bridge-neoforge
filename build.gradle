@@ -1,0 +1,55 @@
+plugins {
+    id 'net.neoforged.moddev' apply false
+}
+
+subprojects {
+    apply plugin: 'java-library'
+    apply plugin: 'net.neoforged.moddev'
+
+    group = rootProject.mod_group_id
+    version = rootProject.mod_version
+
+    ext.mod_id = project.name == 'terminal' ? 'csa_flag_terminal' : 'csa_flag_bridge_server'
+    ext.mod_name = project.name == 'terminal' ? 'CSA Flag Terminal' : 'CSA Flag Bridge Server'
+    ext.mod_description = project.name == 'terminal'
+        ? 'CSA flag terminal content block.'
+        : 'Server-side Ret2Shell token binding and flag delivery bridge.'
+    ext.mod_license = 'MIT'
+
+    java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+    neoForge {
+        enable {
+            version = rootProject.neo_version
+            disableRecompilation = true
+        }
+        mods {
+            "${project.mod_id}" {
+                sourceSet sourceSets.main
+            }
+        }
+    }
+
+    tasks.withType(ProcessResources).configureEach {
+        def replaceProperties = [
+            minecraft_version      : rootProject.minecraft_version,
+            minecraft_version_range: rootProject.minecraft_version_range,
+            neo_version            : rootProject.neo_version,
+            neo_version_range      : rootProject.neo_version_range,
+            loader_version_range   : rootProject.loader_version_range,
+            mod_id                 : project.mod_id,
+            mod_name               : project.mod_name,
+            mod_description        : project.mod_description,
+            mod_license            : project.mod_license,
+            mod_version            : rootProject.mod_version,
+        ]
+        inputs.properties replaceProperties
+        filesMatching('META-INF/neoforge.mods.toml') {
+            expand replaceProperties
+        }
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        options.encoding = 'UTF-8'
+    }
+}

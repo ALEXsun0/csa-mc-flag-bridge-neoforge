@@ -1,0 +1,10 @@
+ext {
+    mod_id = 'csa_flag_bridge_server'
+    mod_name = 'CSA Flag Bridge Server'
+    mod_description = 'Server-side Ret2Shell token binding and flag delivery bridge.'
+    mod_license = 'MIT'
+}
+
+base {
+    archivesName = mod_id
+}

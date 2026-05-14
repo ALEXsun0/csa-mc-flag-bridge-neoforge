@@ -1,0 +1,10 @@
+ext {
+    mod_id = 'csa_flag_terminal'
+    mod_name = 'CSA Flag Terminal'
+    mod_description = 'CSA flag terminal content block.'
+    mod_license = 'MIT'
+}
+
+base {
+    archivesName = mod_id
+}
