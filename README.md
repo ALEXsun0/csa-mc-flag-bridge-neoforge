@@ -8,18 +8,20 @@
 
 - `server`：只放在 Minecraft 服务端。负责 HTTP 注册接口、`/csa` 命令、未绑定玩家限制、token 绑定状态、flag 发放和 claim callback。
 - `terminal`：内容模组，只注册 `csa_flag_bridge:flag_terminal` 方块和物品。可以放入客户端包；不包含 Ret2Shell 地址、token、secret 或部署配置。
+- `aero`：航空学内容模组，只注册 `csa_aero_bridge:flight_recorder` 方块和物品。客户端和服务端都需要放；不包含 Ret2Shell 配置。
+- `aero-server`：只放在 Minecraft 服务端。负责 `/csaero recorder`、多路线飞行认证，以及通过 `server` 模组按放置者 UUID 发放 flag。
 
-不要把 `server` 模组放入客户端整合包。
+不要把 `server` 或 `aero-server` 模组放入客户端整合包。
 
 ## 构建
 
 要求：
 
 - JDK 21
-- Gradle 8.x
+- Gradle 8.x 或 9.x
 
 ```bash
-gradle :server:build :terminal:build
+gradle :server:build :terminal:build :aero:build :aero-server:build
 ```
 
 构建产物：
@@ -27,6 +29,8 @@ gradle :server:build :terminal:build
 ```text
 server/build/libs/csa_flag_bridge_server-<version>.jar
 terminal/build/libs/csa_flag_terminal-<version>.jar
+aero/build/libs/csa_aero_bridge-<version>.jar
+aero-server/build/libs/csa_aero_bridge_server-<version>.jar
 ```
 
 ## Minecraft 服务端配置
@@ -70,6 +74,85 @@ config/csa_flag_bridge/config.json
 - `claimOncePerPlayer`：普通玩家是否只能领取一次。OP/管理员会绕过此限制。
 - `consumeTokenOnFirstClaim`：首次领取后是否消费 token。OP/管理员不会消费 token。
 - `enableClaimCallback`：开启后，若注册时提供 `callback_url` 和 `callback_secret`，flag 会回传到 target 容器页面，方便选手复制。
+
+## 航空学附属模组
+
+安装边界：
+
+- 客户端包：放 `csa_aero_bridge-<version>.jar`。
+- 服务端：放 `csa_aero_bridge-<version>.jar` 和 `csa_aero_bridge_server-<version>.jar`。
+- 服务端仍然需要 `csa_flag_bridge_server-<version>.jar`，客户端不要放服务端 jar。
+
+第一次启动 `aero-server` 后会生成：
+
+```text
+config/csa_aero_bridge/config.json
+```
+
+示例配置：
+
+```json
+{
+  "recorderCooldownSeconds": 5,
+  "maxRecordersInInventory": 8,
+  "stableCruiseTicks": 60,
+  "minHorizontalSpeed": 1.0,
+  "maxVerticalSpeed": 4.0,
+  "maxAngularSpeed": 1.5,
+  "maxHorizontalSpeedJitter": 8.0,
+  "highSpeedClaimEnabled": true,
+  "highSpeedTicks": 40,
+  "highSpeedHorizontalSpeed": 8.0,
+  "altitudeClaimEnabled": true,
+  "altitudeTicks": 40,
+  "altitudeY": 180.0,
+  "altitudeMinHorizontalSpeed": 0.0,
+  "recorderTickInterval": 5,
+  "recorderHudIntervalTicks": 5,
+  "starterHoneyGlueEnabled": true,
+  "starterHoneyGlueItemId": "simulated:honey_glue",
+  "starterHoneyGlueCount": 8,
+  "starterGogglesEnabled": true,
+  "starterGogglesItemId": "create:goggles",
+  "starterGogglesCount": 1,
+  "sheepProductionBoostEnabled": true,
+  "sheepShearingWoolCount": 16,
+  "sheepDeathWoolDropMultiplier": 8,
+  "messagePrefix": "[CSA Aero]"
+}
+```
+
+玩家流程：
+
+```text
+/csa bind <token>
+/csaero requirements
+/csaero recorder
+```
+
+`/csaero requirements` 会显示当前服务端配置下的飞行认证条件。`/csaero recorder` 每次发放 1 个 `CSA Flight Recorder / CSA 飞行记录仪`。普通玩家必须已绑定 token，默认 5 秒冷却，背包和副手内默认最多持有 8 个；OP 绕过这些限制，方便测试。
+
+玩家第一次进入服务器时，`aero-server` 会默认发放 `8` 个 `simulated:honey_glue / 蜂蜜胶` 和 `1` 个 `create:goggles / 工程师护目镜` 作为开局建造物资。蜂蜜胶不可堆叠，因此会分散为 8 个物品。两类物品使用独立发放标记，重连不会重复领取；已领过蜂蜜胶的玩家在更新后再次登录仍可领取护目镜。可通过 `starterHoneyGlue*` 和 `starterGoggles*` 配置项调整。
+
+默认启用羊毛产出增强：剪羊一次固定掉落 `16` 个对应颜色羊毛，杀羊时只把羊毛掉落按 `8` 倍放大，羊肉保持原版掉落。可通过 `sheepProductionBoostEnabled`、`sheepShearingWoolCount` 和 `sheepDeathWoolDropMultiplier` 调整。
+
+记录仪安装在航空学飞行器上并开始检测后，满足任一路线即可领取 flag：
+
+- 稳定路线：连续 `stableCruiseTicks` 达标；水平速度不低于 `minHorizontalSpeed`，垂直速度、角速度、水平速度波动分别不超过配置阈值。
+- 极速路线：`highSpeedClaimEnabled=true` 时，水平速度达到 `highSpeedHorizontalSpeed` 并连续保持 `highSpeedTicks`。
+- 高度路线：`altitudeClaimEnabled=true` 时，飞行器高度达到 `altitudeY`，水平速度不低于 `altitudeMinHorizontalSpeed`，并连续保持 `altitudeTicks`。
+
+放置者会在顶部 HUD 看到两行 bossbar：一行显示当前实际值和三条路线进度，另一行显示达标阈值。第一次开始显示时，聊天框只提示一次图例：`S=稳定路线`、`F=极速路线`、`A=高度路线`、`H=水平速度`、`Y=高度`、`V=垂直速度`、`R=角速度`、`D=水平速度波动`。HUD 默认每 5 tick 更新一次，可通过 `recorderHudIntervalTicks` 调整。
+
+记录仪放置后会记录 `placer_uuid`、`placer_name`、`placed_at`、`claimed=false`。同一架航空学飞行器允许安装多个记录仪，每个记录仪独立归属放置者。认证达成后，服务端会调用：
+
+```text
+bridge.claimForUuid(placer_uuid, "aero_recorder_stable_cruise")
+```
+
+其中 reason 会按路线分别为 `aero_recorder_stable_cruise`、`aero_recorder_high_speed` 或 `aero_recorder_altitude`。
+
+同一个记录仪只会触发一次。claim callback 成功时 flag 回传到 Ret2Shell 靶机页面；callback 未配置或失败时，在线玩家会收到游戏内私信兜底。
 
 ## Ret2Shell 配置
 
@@ -201,5 +284,5 @@ Ret2Shell checker environ()
 
 - 不要提交真实 `registrationSecret`、`ENCRYPT_KEY`、`TOKEN_SALT`、平台 IP 或比赛 bucket。
 - 服务端注册端口建议只允许 Ret2Shell pod CIDR / Kubernetes 节点访问。
-- `server` 模组只放服务端，客户端包只放 `terminal` 及其他玩法模组。
+- `server` 和 `aero-server` 模组只放服务端；客户端包只放 `terminal`、`aero` 及其他玩法模组。
 - target 容器内不要把 `FLAG` 直接打印到日志；注册成功后可以 `unset FLAG`，只保留页面回传所需状态。

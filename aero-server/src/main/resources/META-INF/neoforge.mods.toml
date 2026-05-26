@@ -1,0 +1,52 @@
+modLoader = "javafml"
+loaderVersion = "${loader_version_range}"
+license = "${mod_license}"
+
+[[mods]]
+modId = "${mod_id}"
+version = "${mod_version}"
+displayName = "${mod_name}"
+authors = "CAUC CSA"
+description = '''${mod_description}'''
+
+[[dependencies.${mod_id}]]
+modId = "neoforge"
+type = "required"
+versionRange = "${neo_version_range}"
+ordering = "NONE"
+side = "SERVER"
+
+[[dependencies.${mod_id}]]
+modId = "minecraft"
+type = "required"
+versionRange = "${minecraft_version_range}"
+ordering = "NONE"
+side = "SERVER"
+
+[[dependencies.${mod_id}]]
+modId = "csa_aero_bridge"
+type = "required"
+versionRange = "[0.2.0,)"
+ordering = "AFTER"
+side = "SERVER"
+
+[[dependencies.${mod_id}]]
+modId = "csa_flag_bridge_server"
+type = "required"
+versionRange = "[0.2.0,)"
+ordering = "AFTER"
+side = "SERVER"
+
+[[dependencies.${mod_id}]]
+modId = "aeronautics_bundled"
+type = "required"
+versionRange = "[1.2.1,)"
+ordering = "AFTER"
+side = "SERVER"
+
+[[dependencies.${mod_id}]]
+modId = "sable"
+type = "required"
+versionRange = "[1.2.2,)"
+ordering = "AFTER"
+side = "SERVER"

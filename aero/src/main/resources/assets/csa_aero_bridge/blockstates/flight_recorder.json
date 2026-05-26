@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "csa_aero_bridge:block/flight_recorder" },
+    "facing=east": { "model": "csa_aero_bridge:block/flight_recorder", "y": 90 },
+    "facing=south": { "model": "csa_aero_bridge:block/flight_recorder", "y": 180 },
+    "facing=west": { "model": "csa_aero_bridge:block/flight_recorder", "y": 270 }
+  }
+}

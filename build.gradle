@@ -9,11 +9,24 @@ subprojects {
     group = rootProject.mod_group_id
     version = rootProject.mod_version
 
-    ext.mod_id = project.name == 'terminal' ? 'csa_flag_terminal' : 'csa_flag_bridge_server'
-    ext.mod_name = project.name == 'terminal' ? 'CSA Flag Terminal' : 'CSA Flag Bridge Server'
-    ext.mod_description = project.name == 'terminal'
-        ? 'CSA flag terminal content block.'
-        : 'Server-side Ret2Shell token binding and flag delivery bridge.'
+    ext.mod_id = [
+        terminal     : 'csa_flag_terminal',
+        server       : 'csa_flag_bridge_server',
+        aero         : 'csa_aero_bridge',
+        'aero-server': 'csa_aero_bridge_server',
+    ][project.name]
+    ext.mod_name = [
+        terminal     : 'CSA Flag Terminal',
+        server       : 'CSA Flag Bridge Server',
+        aero         : 'CSA Aero Bridge',
+        'aero-server': 'CSA Aero Bridge Server',
+    ][project.name]
+    ext.mod_description = [
+        terminal     : 'CSA flag terminal content block.',
+        server       : 'Server-side Ret2Shell token binding and flag delivery bridge.',
+        aero         : 'CSA flight recorder content block for Create Aeronautics.',
+        'aero-server': 'Server-side Create Aeronautics stable-cruise certification addon for CSA Flag Bridge.',
+    ][project.name]
     ext.mod_license = 'MIT'
 
     java.toolchain.languageVersion = JavaLanguageVersion.of(21)

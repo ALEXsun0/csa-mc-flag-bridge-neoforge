@@ -1,0 +1,10 @@
+ext {
+    mod_id = 'csa_aero_bridge'
+    mod_name = 'CSA Aero Bridge'
+    mod_description = 'CSA flight recorder content block for Create Aeronautics.'
+    mod_license = 'MIT'
+}
+
+base {
+    archivesName = mod_id
+}
