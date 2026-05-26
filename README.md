@@ -127,6 +127,7 @@ config/csa_aero_bridge/config.json
 ```text
 /csa bind <token>
 /csaero requirements
+/csaero route stable|speed|altitude|auto
 /csaero recorder
 ```
 
@@ -142,7 +143,7 @@ config/csa_aero_bridge/config.json
 - 极速路线：`highSpeedClaimEnabled=true` 时，水平速度达到 `highSpeedHorizontalSpeed` 并连续保持 `highSpeedTicks`。
 - 高度路线：`altitudeClaimEnabled=true` 时，飞行器高度达到 `altitudeY`，水平速度不低于 `altitudeMinHorizontalSpeed`，并连续保持 `altitudeTicks`。
 
-放置者会在顶部 HUD 看到两行 bossbar：一行显示当前实际值和三条路线进度，另一行显示达标阈值。第一次开始显示时，聊天框只提示一次图例：`S=稳定路线`、`F=极速路线`、`A=高度路线`、`H=水平速度`、`Y=高度`、`V=垂直速度`、`R=角速度`、`D=水平速度波动`。HUD 默认每 5 tick 更新一次，可通过 `recorderHudIntervalTicks` 调整。
+放置者会在顶部 HUD 看到两行 bossbar：一行显示当前路线的实际值和进度，另一行显示当前路线的达标阈值。默认 `/csaero route auto` 会自动展示当前进度最高的路线；玩家也可以用 `/csaero route stable`、`/csaero route speed` 或 `/csaero route altitude` 手动切换 HUD 路线。路线选择只影响 HUD 显示，不限制实际认证；任一路线达成都会发放 flag。`/csaero requirements` 会按多行输出完整阈值，避免聊天框挤成一行。HUD 默认每 5 tick 更新一次，可通过 `recorderHudIntervalTicks` 调整。
 
 记录仪放置后会记录 `placer_uuid`、`placer_name`、`placed_at`、`claimed=false`。同一架航空学飞行器允许安装多个记录仪，每个记录仪独立归属放置者。认证达成后，服务端会调用：
 

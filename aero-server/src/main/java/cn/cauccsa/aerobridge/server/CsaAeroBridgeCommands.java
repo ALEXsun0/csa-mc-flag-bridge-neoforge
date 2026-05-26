@@ -18,6 +18,7 @@ import net.minecraft.world.item.ItemStack;
 
 public final class CsaAeroBridgeCommands {
     private static final Map<UUID, Long> LAST_RECORDER_ISSUED_AT = new HashMap<>();
+    private static final Map<UUID, RouteChoice> ROUTE_CHOICES = new HashMap<>();
 
     private CsaAeroBridgeCommands() {
     }
@@ -27,7 +28,17 @@ public final class CsaAeroBridgeCommands {
             .then(literal("recorder")
                 .executes(context -> giveRecorder(context.getSource().getPlayerOrException())))
             .then(literal("requirements")
-                .executes(context -> showRequirements(context.getSource()))));
+                .executes(context -> showRequirements(context.getSource())))
+            .then(literal("route")
+                .executes(context -> showRoute(context.getSource().getPlayerOrException()))
+                .then(literal("auto")
+                    .executes(context -> setRoute(context.getSource().getPlayerOrException(), RouteChoice.AUTO)))
+                .then(literal("stable")
+                    .executes(context -> setRoute(context.getSource().getPlayerOrException(), RouteChoice.STABLE)))
+                .then(literal("speed")
+                    .executes(context -> setRoute(context.getSource().getPlayerOrException(), RouteChoice.HIGH_SPEED)))
+                .then(literal("altitude")
+                    .executes(context -> setRoute(context.getSource().getPlayerOrException(), RouteChoice.ALTITUDE)))));
     }
 
     private static int giveRecorder(ServerPlayer player) {
@@ -68,22 +79,30 @@ public final class CsaAeroBridgeCommands {
         player.sendSystemMessage(Component.literal(CsaAeroBridgeServer.formatMessage(
             "已发放 CSA 飞行记录仪。将它安装在航空学飞行器上，满足任一路线即可完成认证。"
         )));
-        player.sendSystemMessage(Component.literal(CsaAeroBridgeServer.formatMessage(requirementsText(config))));
+        player.sendSystemMessage(Component.literal(CsaAeroBridgeServer.formatMessage(
+            "可用 /csaero route stable|speed|altitude 选择 HUD 路线，或 /csaero route auto 自动判定。"
+        )));
+        sendRequirementLines(player, config);
         return Command.SINGLE_SUCCESS;
     }
 
     private static int showRequirements(CommandSourceStack source) {
-        source.sendSuccess(
-            () -> Component.literal(CsaAeroBridgeServer.formatMessage(requirementsText(CsaAeroBridgeServer.config()))),
-            false
-        );
+        for (String line : requirementsLines(CsaAeroBridgeServer.config())) {
+            source.sendSuccess(() -> Component.literal(CsaAeroBridgeServer.formatMessage(line)), false);
+        }
         return Command.SINGLE_SUCCESS;
     }
 
-    private static String requirementsText(CsaAeroBridgeConfig config) {
+    private static void sendRequirementLines(ServerPlayer player, CsaAeroBridgeConfig config) {
+        for (String line : requirementsLines(config)) {
+            player.sendSystemMessage(Component.literal(CsaAeroBridgeServer.formatMessage(line)));
+        }
+    }
+
+    private static String[] requirementsLines(CsaAeroBridgeConfig config) {
         String stableRoute = String.format(
             Locale.ROOT,
-            "稳定路线：连续 %.1f 秒，水平速度 >= %.1f，垂直速度 <= %.1f，角速度 <= %.2f，水平速度波动 <= %.1f",
+            "稳定路线：连续 %.1f 秒；H>=%.1f，V<=%.1f，R<=%.2f，D<=%.1f",
             config.stableCruiseTicks / 20.0,
             config.minHorizontalSpeed,
             config.maxVerticalSpeed,
@@ -93,21 +112,60 @@ public final class CsaAeroBridgeCommands {
         String highSpeedRoute = config.highSpeedClaimEnabled
             ? String.format(
                 Locale.ROOT,
-                "极速路线：水平速度 >= %.1f，连续 %.1f 秒",
-                config.highSpeedHorizontalSpeed,
-                config.highSpeedTicks / 20.0
+                "极速路线：连续 %.1f 秒；H>=%.1f",
+                config.highSpeedTicks / 20.0,
+                config.highSpeedHorizontalSpeed
             )
             : "极速路线：关闭";
         String altitudeRoute = config.altitudeClaimEnabled
             ? String.format(
                 Locale.ROOT,
-                "高度路线：高度 Y >= %.1f，水平速度 >= %.1f，连续 %.1f 秒",
+                "高度路线：连续 %.1f 秒；Y>=%.1f，H>=%.1f",
+                config.altitudeTicks / 20.0,
                 config.altitudeY,
-                config.altitudeMinHorizontalSpeed,
-                config.altitudeTicks / 20.0
+                config.altitudeMinHorizontalSpeed
             )
             : "高度路线：关闭";
-        return "获取 flag 条件：满足任一路线即可。" + stableRoute + "；" + highSpeedRoute + "；" + altitudeRoute + "。飞行时顶部 HUD 会显示当前进度和阈值。";
+        return new String[] {
+            "获取 flag 条件：满足任一路线即可。",
+            stableRoute,
+            highSpeedRoute,
+            altitudeRoute,
+            "HUD 路线：/csaero route auto|stable|speed|altitude"
+        };
+    }
+
+    private static int showRoute(ServerPlayer player) {
+        RouteChoice route = routeFor(player.getUUID());
+        player.sendSystemMessage(Component.literal(CsaAeroBridgeServer.formatMessage(
+            "当前 HUD 路线：" + route.displayName() + "。可选：auto、stable、speed、altitude"
+        )));
+        return Command.SINGLE_SUCCESS;
+    }
+
+    private static int setRoute(ServerPlayer player, RouteChoice route) {
+        CsaAeroBridgeConfig config = CsaAeroBridgeServer.config();
+        if (route == RouteChoice.HIGH_SPEED && !config.highSpeedClaimEnabled) {
+            player.sendSystemMessage(Component.literal(CsaAeroBridgeServer.formatMessage("极速路线当前未启用")));
+            return 0;
+        }
+        if (route == RouteChoice.ALTITUDE && !config.altitudeClaimEnabled) {
+            player.sendSystemMessage(Component.literal(CsaAeroBridgeServer.formatMessage("高度路线当前未启用")));
+            return 0;
+        }
+
+        ROUTE_CHOICES.put(player.getUUID(), route);
+        player.sendSystemMessage(Component.literal(CsaAeroBridgeServer.formatMessage(
+            "已切换 HUD 路线：" + route.displayName()
+        )));
+        return Command.SINGLE_SUCCESS;
+    }
+
+    public static RouteChoice routeFor(UUID playerUuid) {
+        if (playerUuid == null) {
+            return RouteChoice.AUTO;
+        }
+        return ROUTE_CHOICES.getOrDefault(playerUuid, RouteChoice.AUTO);
     }
 
     private static int countRecorders(ServerPlayer player) {
@@ -123,5 +181,22 @@ public final class CsaAeroBridgeCommands {
             }
         }
         return count;
+    }
+
+    public enum RouteChoice {
+        AUTO("自动"),
+        STABLE("稳定路线"),
+        HIGH_SPEED("极速路线"),
+        ALTITUDE("高度路线");
+
+        private final String displayName;
+
+        RouteChoice(String displayName) {
+            this.displayName = displayName;
+        }
+
+        public String displayName() {
+            return displayName;
+        }
     }
 }

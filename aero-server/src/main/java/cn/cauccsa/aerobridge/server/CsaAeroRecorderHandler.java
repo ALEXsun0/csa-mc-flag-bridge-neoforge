@@ -26,15 +26,21 @@ import org.joml.Vector3dc;
 public final class CsaAeroRecorderHandler {
     private static final CertificationRoute STABLE_ROUTE = new CertificationRoute(
         "稳定巡航",
-        "aero_recorder_stable_cruise"
+        "稳定",
+        "aero_recorder_stable_cruise",
+        CsaAeroBridgeCommands.RouteChoice.STABLE
     );
     private static final CertificationRoute HIGH_SPEED_ROUTE = new CertificationRoute(
         "极速飞行",
-        "aero_recorder_high_speed"
+        "极速",
+        "aero_recorder_high_speed",
+        CsaAeroBridgeCommands.RouteChoice.HIGH_SPEED
     );
     private static final CertificationRoute ALTITUDE_ROUTE = new CertificationRoute(
         "高度飞行",
-        "aero_recorder_altitude"
+        "高度",
+        "aero_recorder_altitude",
+        CsaAeroBridgeCommands.RouteChoice.ALTITUDE
     );
     private static final int FAILURE_NOTICE_INTERVAL_TICKS = 200;
     private static final Map<BlockKey, RuntimeState> RUNTIME = new HashMap<>();
@@ -77,7 +83,8 @@ public final class CsaAeroRecorderHandler {
                 runtime,
                 new CruiseSample(0.0, 0.0, 0.0, recorder.getBlockPos().getY()),
                 new CruiseAssessment(false, 0.0, "未安装在飞行器上"),
-                RouteProgress.empty()
+                RouteProgress.empty(),
+                CsaAeroBridgeCommands.routeFor(placerUuid)
             );
             resetProgress(recorder, runtime);
             return;
@@ -86,7 +93,8 @@ public final class CsaAeroRecorderHandler {
         CruiseSample sample = sampleCruise(subLevel);
         CruiseAssessment assessment = assessCruise(config, sample, runtime);
         RouteProgress progress = updateProgress(recorder, config, runtime, sample, assessment);
-        sendHud(recorder, config, runtime, sample, assessment, progress);
+        CsaAeroBridgeCommands.RouteChoice routeChoice = CsaAeroBridgeCommands.routeFor(placerUuid);
+        sendHud(recorder, config, runtime, sample, assessment, progress, routeChoice);
 
         CertificationRoute completedRoute = completedRoute(config, progress);
         if (completedRoute != null) {
@@ -212,16 +220,21 @@ public final class CsaAeroRecorderHandler {
     }
 
     private static CertificationRoute completedRoute(CsaAeroBridgeConfig config, RouteProgress progress) {
-        if (progress.stableTicks() >= config.stableCruiseTicks) {
-            return STABLE_ROUTE;
-        }
-        if (config.highSpeedClaimEnabled && progress.highSpeedTicks() >= config.highSpeedTicks) {
-            return HIGH_SPEED_ROUTE;
-        }
-        if (config.altitudeClaimEnabled && progress.altitudeTicks() >= config.altitudeTicks) {
-            return ALTITUDE_ROUTE;
+        for (CertificationRoute route : new CertificationRoute[] {STABLE_ROUTE, HIGH_SPEED_ROUTE, ALTITUDE_ROUTE}) {
+            if (routeCompleted(config, progress, route)) {
+                return route;
+            }
         }
         return null;
+    }
+
+    private static boolean routeCompleted(CsaAeroBridgeConfig config, RouteProgress progress, CertificationRoute route) {
+        return switch (route.choice()) {
+            case STABLE -> progress.stableTicks() >= config.stableCruiseTicks;
+            case HIGH_SPEED -> config.highSpeedClaimEnabled && progress.highSpeedTicks() >= config.highSpeedTicks;
+            case ALTITUDE -> config.altitudeClaimEnabled && progress.altitudeTicks() >= config.altitudeTicks;
+            case AUTO -> false;
+        };
     }
 
     private static void sendHud(
@@ -230,7 +243,8 @@ public final class CsaAeroRecorderHandler {
         RuntimeState runtime,
         CruiseSample sample,
         CruiseAssessment assessment,
-        RouteProgress progress
+        RouteProgress progress,
+        CsaAeroBridgeCommands.RouteChoice routeChoice
     ) {
         Level level = recorder.recorderLevel();
         UUID placerUuid = recorder.placerUuid();
@@ -244,10 +258,9 @@ public final class CsaAeroRecorderHandler {
             return;
         }
 
-        String status = assessment.stable() ? "达标中" : "未达标:" + assessment.reason();
         long gameTime = serverLevel.getGameTime();
         sendLegendOnce(player, runtime);
-        sendBossBarStatus(player, config, runtime, sample, assessment, progress, status, gameTime);
+        sendBossBarStatus(player, config, runtime, sample, assessment, progress, routeChoice, gameTime);
     }
 
     private static void sendLegendOnce(ServerPlayer player, RuntimeState runtime) {
@@ -256,7 +269,7 @@ public final class CsaAeroRecorderHandler {
         }
         runtime.legendSent = true;
         player.sendSystemMessage(Component.literal(CsaAeroBridgeServer.formatMessage(
-            "飞行记录仪 HUD：S=稳定路线，F=极速路线，A=高度路线，H=水平速度，Y=高度，V=垂直速度，R=角速度，D=水平速度波动。使用 /csaero requirements 查看达标阈值。"
+            "飞行记录仪 HUD 只显示当前路线。用 /csaero route stable|speed|altitude 切换，/csaero route auto 自动判定。"
         )).withStyle(ChatFormatting.AQUA));
     }
 
@@ -267,7 +280,7 @@ public final class CsaAeroRecorderHandler {
         CruiseSample sample,
         CruiseAssessment assessment,
         RouteProgress progress,
-        String status,
+        CsaAeroBridgeCommands.RouteChoice routeChoice,
         long gameTime
     ) {
         if (gameTime - runtime.lastHudTick < config.recorderHudIntervalTicks) {
@@ -276,51 +289,158 @@ public final class CsaAeroRecorderHandler {
         runtime.lastHudTick = gameTime;
 
         ensureBossBars(player, runtime);
-
-        String actual = String.format(
-            Locale.ROOT,
-            "CSA 实际: %s | S %.1f/%.1fs | F %.1f/%.1fs | A %.1f/%.1fs | H %.1f | Y %.1f | V %.1f | R %.2f | D %.1f",
-            status,
-            progress.stableTicks() / 20.0,
-            config.stableCruiseTicks / 20.0,
-            progress.highSpeedTicks() / 20.0,
-            config.highSpeedTicks / 20.0,
-            progress.altitudeTicks() / 20.0,
-            config.altitudeTicks / 20.0,
-            sample.horizontalSpeed(),
-            sample.altitudeY(),
-            sample.verticalSpeed(),
-            sample.angularSpeed(),
-            assessment.horizontalJitter()
-        );
-        String requirement = String.format(
-            Locale.ROOT,
-            "CSA 要求: 任一路线 | S H>=%.1f V<=%.1f R<=%.2f D<=%.1f | F H>=%.1f | A Y>=%.1f H>=%.1f",
-            config.minHorizontalSpeed,
-            config.maxVerticalSpeed,
-            config.maxAngularSpeed,
-            config.maxHorizontalSpeedJitter,
-            config.highSpeedHorizontalSpeed,
-            config.altitudeY,
-            config.altitudeMinHorizontalSpeed
-        );
+        CertificationRoute displayRoute = displayRoute(config, progress, routeChoice);
+        String actual = actualText(config, sample, assessment, progress, routeChoice, displayRoute);
+        String requirement = requirementText(config, displayRoute);
 
         runtime.actualBar.setName(Component.literal(actual));
-        runtime.actualBar.setProgress(bestRouteProgress(config, progress));
-        runtime.actualBar.setColor(bestRouteProgress(config, progress) >= 1.0F ? BossEvent.BossBarColor.GREEN : BossEvent.BossBarColor.YELLOW);
+        float routeProgress = routeProgress(config, progress, displayRoute);
+        runtime.actualBar.setProgress(routeProgress);
+        runtime.actualBar.setColor(routeProgress >= 1.0F ? BossEvent.BossBarColor.GREEN : BossEvent.BossBarColor.YELLOW);
         runtime.requirementBar.setName(Component.literal(requirement));
         runtime.requirementBar.setProgress(1.0F);
     }
 
-    private static float bestRouteProgress(CsaAeroBridgeConfig config, RouteProgress progress) {
-        float stable = clampProgress((float) progress.stableTicks() / (float) config.stableCruiseTicks);
-        float highSpeed = config.highSpeedClaimEnabled
-            ? clampProgress((float) progress.highSpeedTicks() / (float) config.highSpeedTicks)
-            : 0.0F;
-        float altitude = config.altitudeClaimEnabled
-            ? clampProgress((float) progress.altitudeTicks() / (float) config.altitudeTicks)
-            : 0.0F;
-        return Math.max(stable, Math.max(highSpeed, altitude));
+    private static CertificationRoute displayRoute(
+        CsaAeroBridgeConfig config,
+        RouteProgress progress,
+        CsaAeroBridgeCommands.RouteChoice routeChoice
+    ) {
+        CertificationRoute selected = routeForChoice(routeChoice);
+        if (selected != null) {
+            return selected;
+        }
+
+        CertificationRoute best = STABLE_ROUTE;
+        float bestProgress = routeProgress(config, progress, STABLE_ROUTE);
+        if (config.highSpeedClaimEnabled) {
+            float highSpeedProgress = routeProgress(config, progress, HIGH_SPEED_ROUTE);
+            if (highSpeedProgress > bestProgress) {
+                best = HIGH_SPEED_ROUTE;
+                bestProgress = highSpeedProgress;
+            }
+        }
+        if (config.altitudeClaimEnabled) {
+            float altitudeProgress = routeProgress(config, progress, ALTITUDE_ROUTE);
+            if (altitudeProgress > bestProgress) {
+                best = ALTITUDE_ROUTE;
+            }
+        }
+        return best;
+    }
+
+    private static CertificationRoute routeForChoice(CsaAeroBridgeCommands.RouteChoice routeChoice) {
+        return switch (routeChoice) {
+            case STABLE -> STABLE_ROUTE;
+            case HIGH_SPEED -> HIGH_SPEED_ROUTE;
+            case ALTITUDE -> ALTITUDE_ROUTE;
+            case AUTO -> null;
+        };
+    }
+
+    private static String actualText(
+        CsaAeroBridgeConfig config,
+        CruiseSample sample,
+        CruiseAssessment assessment,
+        RouteProgress progress,
+        CsaAeroBridgeCommands.RouteChoice routeChoice,
+        CertificationRoute route
+    ) {
+        String routeName = routeChoice == CsaAeroBridgeCommands.RouteChoice.AUTO
+            ? "自动-" + route.shortName()
+            : route.shortName();
+        String status = routeStatus(config, sample, assessment, route);
+        return switch (route.choice()) {
+            case STABLE -> String.format(
+                Locale.ROOT,
+                "CSA %s: %s | %.1f/%.1fs | H %.1f V %.1f R %.2f D %.1f",
+                routeName,
+                status,
+                progress.stableTicks() / 20.0,
+                config.stableCruiseTicks / 20.0,
+                sample.horizontalSpeed(),
+                sample.verticalSpeed(),
+                sample.angularSpeed(),
+                assessment.horizontalJitter()
+            );
+            case HIGH_SPEED -> String.format(
+                Locale.ROOT,
+                "CSA %s: %s | %.1f/%.1fs | H %.1f",
+                routeName,
+                status,
+                progress.highSpeedTicks() / 20.0,
+                config.highSpeedTicks / 20.0,
+                sample.horizontalSpeed()
+            );
+            case ALTITUDE -> String.format(
+                Locale.ROOT,
+                "CSA %s: %s | %.1f/%.1fs | Y %.1f H %.1f",
+                routeName,
+                status,
+                progress.altitudeTicks() / 20.0,
+                config.altitudeTicks / 20.0,
+                sample.altitudeY(),
+                sample.horizontalSpeed()
+            );
+            case AUTO -> "";
+        };
+    }
+
+    private static String requirementText(CsaAeroBridgeConfig config, CertificationRoute route) {
+        return switch (route.choice()) {
+            case STABLE -> String.format(
+                Locale.ROOT,
+                "CSA 要求: H>=%.1f V<=%.1f R<=%.2f D<=%.1f",
+                config.minHorizontalSpeed,
+                config.maxVerticalSpeed,
+                config.maxAngularSpeed,
+                config.maxHorizontalSpeedJitter
+            );
+            case HIGH_SPEED -> String.format(
+                Locale.ROOT,
+                "CSA 要求: H>=%.1f",
+                config.highSpeedHorizontalSpeed
+            );
+            case ALTITUDE -> String.format(
+                Locale.ROOT,
+                "CSA 要求: Y>=%.1f H>=%.1f",
+                config.altitudeY,
+                config.altitudeMinHorizontalSpeed
+            );
+            case AUTO -> "";
+        };
+    }
+
+    private static String routeStatus(
+        CsaAeroBridgeConfig config,
+        CruiseSample sample,
+        CruiseAssessment assessment,
+        CertificationRoute route
+    ) {
+        return switch (route.choice()) {
+            case STABLE -> assessment.stable() ? "达标中" : "未达标:" + assessment.reason();
+            case HIGH_SPEED -> sample.horizontalSpeed() >= config.highSpeedHorizontalSpeed ? "达标中" : "未达标:速度不足";
+            case ALTITUDE -> {
+                if (sample.altitudeY() < config.altitudeY) {
+                    yield "未达标:高度不足";
+                }
+                yield sample.horizontalSpeed() >= config.altitudeMinHorizontalSpeed ? "达标中" : "未达标:水平不足";
+            }
+            case AUTO -> "";
+        };
+    }
+
+    private static float routeProgress(CsaAeroBridgeConfig config, RouteProgress progress, CertificationRoute route) {
+        return switch (route.choice()) {
+            case STABLE -> clampProgress((float) progress.stableTicks() / (float) config.stableCruiseTicks);
+            case HIGH_SPEED -> config.highSpeedClaimEnabled
+                ? clampProgress((float) progress.highSpeedTicks() / (float) config.highSpeedTicks)
+                : 0.0F;
+            case ALTITUDE -> config.altitudeClaimEnabled
+                ? clampProgress((float) progress.altitudeTicks() / (float) config.altitudeTicks)
+                : 0.0F;
+            case AUTO -> 0.0F;
+        };
     }
 
     private static void ensureBossBars(ServerPlayer player, RuntimeState runtime) {
@@ -444,7 +564,12 @@ public final class CsaAeroRecorderHandler {
         }
     }
 
-    private record CertificationRoute(String displayName, String reason) {
+    private record CertificationRoute(
+        String displayName,
+        String shortName,
+        String reason,
+        CsaAeroBridgeCommands.RouteChoice choice
+    ) {
         int finalStableTicks(CsaAeroBridgeConfig config) {
             return config.stableCruiseTicks;
         }
