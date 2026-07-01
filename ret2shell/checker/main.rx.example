@@ -36,30 +36,10 @@ fn token_for(id) {
 }
 
 pub async fn check(bucket, user, team, submission) {
-  let submitted = utils::Flag::parse(submission.content)?;
-  if submitted.prefix() != PREFIX {
-    return Ok((false, `Wrong format! flag should be ${PREFIX}{...}`, None));
-  }
-
   let id = subject_id(user, team);
-  let expected_content = audit::encode(TEMPLATE, ENCRYPT_KEY, id);
-  if expected_content == submitted.content() {
+  let expected_flag = flag_for(id);
+  if submission.content == expected_flag {
     return Ok((true, "Correct!", None));
-  }
-
-  let decoded = audit::decode(TEMPLATE, ENCRYPT_KEY, submitted.content());
-  let peer_id = match decoded {
-    Ok(peer_id) => peer_id,
-    Err(_) => return Ok((false, "Incorrect!", None))
-  };
-
-  if let Some(team_id) = team.id {
-    if peer_id != team_id {
-      return Ok((false, "Incorrect!", Some(#{
-        peer_team: peer_id,
-        reason: `team ${team_id} may have submitted another team's flag`
-      })));
-    }
   }
 
   Ok((false, "Incorrect!", None))
