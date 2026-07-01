@@ -12,6 +12,7 @@ import com.google.gson.Gson;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
@@ -143,6 +144,14 @@ public final class FlagBridgeService {
         return CommandResult.success("已绑定。注意续期 Ret2Shell 靶机，靶机过期或重开后请重新绑定新 token");
     }
 
+    public synchronized boolean isUuidBound(UUID playerUuid) {
+        if (playerUuid == null) {
+            return false;
+        }
+        String token = state.getBinding(playerUuid.toString());
+        return token != null && state.getRegistration(token) != null;
+    }
+
     public void tickBindGate() {
         if (!config.bindGateEnabled) {
             return;
@@ -180,14 +189,42 @@ public final class FlagBridgeService {
         }
     }
 
-    private synchronized CommandResult claimForPlayer(ServerPlayer player, BlockPos pos) {
-        String playerUuid = player.getUUID().toString();
+    public CommandResult claimForUuid(UUID playerUuid, String reason) {
+        return claimForUuid(playerUuid, "", reason, null);
+    }
+
+    public synchronized CommandResult claimForUuid(UUID playerUuid, String playerName, String reason, BlockPos pos) {
+        if (playerUuid == null) {
+            return CommandResult.failure("玩家 UUID 为空");
+        }
+        ServerPlayer player = server.getPlayerList().getPlayer(playerUuid);
+        String effectiveName = playerName == null ? "" : playerName.trim();
+        if (player != null) {
+            effectiveName = player.getName().getString();
+        }
+        if (effectiveName.isEmpty()) {
+            effectiveName = playerUuid.toString();
+        }
+        return claimForUuidInternal(playerUuid.toString(), effectiveName, player, pos, reason);
+    }
+
+    private CommandResult claimForPlayer(ServerPlayer player, BlockPos pos) {
+        return claimForUuidInternal(
+            player.getUUID().toString(),
+            player.getName().getString(),
+            player,
+            pos,
+            "flag_terminal"
+        );
+    }
+
+    private synchronized CommandResult claimForUuidInternal(String playerUuid, String playerName, ServerPlayer player, BlockPos pos, String reason) {
         String token = state.getBinding(playerUuid);
         if (token == null) {
-            if (config.notifyPlayerWhenUnbound) {
+            if (player != null && config.notifyPlayerWhenUnbound) {
                 return CommandResult.failure("未绑定 ret2shell token，先执行 /csa bind <token>");
             }
-            return CommandResult.failure("");
+            return CommandResult.failure("玩家未绑定 ret2shell token");
         }
 
         CsaFlagBridgeState.Registration registration = state.getRegistration(token);
@@ -201,9 +238,13 @@ public final class FlagBridgeService {
             return CommandResult.success("你已经领取过 flag");
         }
 
-        ClaimCallbackResult callbackResult = deliverFlagToCallback(registration, player, pos);
-        if (callbackResult.configured() && !callbackResult.ok()) {
-            return CommandResult.failure("flag 回传到靶机页面失败，请稍后重试或联系管理员");
+        ClaimCallbackResult callbackResult = deliverFlagToCallback(registration, playerUuid, playerName, pos, reason);
+        boolean fallbackToPlayerMessage = callbackResult.configured() && !callbackResult.ok();
+        if (fallbackToPlayerMessage && player == null) {
+            return CommandResult.failure("flag 回传到靶机页面失败，且玩家当前不在线，稍后会重试");
+        }
+        if (!callbackResult.configured() && player == null) {
+            return CommandResult.failure("玩家当前不在线，无法通过游戏内私信发送 flag");
         }
 
         try {
@@ -219,21 +260,35 @@ public final class FlagBridgeService {
             return CommandResult.failure("flag 已判定可领取，但保存状态失败，请联系管理员");
         }
 
-        CsaFlagBridgeServerMod.LOGGER.info(
-            "Flag claimed by {} ({}) at {} {} {}",
-            player.getName().getString(),
-            playerUuid,
-            pos.getX(),
-            pos.getY(),
-            pos.getZ()
-        );
-        if (callbackResult.configured()) {
+        if (pos == null) {
+            CsaFlagBridgeServerMod.LOGGER.info("Flag claimed by {} ({}) reason={}", playerName, playerUuid, reason);
+        } else {
+            CsaFlagBridgeServerMod.LOGGER.info(
+                "Flag claimed by {} ({}) reason={} at {} {} {}",
+                playerName,
+                playerUuid,
+                reason,
+                pos.getX(),
+                pos.getY(),
+                pos.getZ()
+            );
+        }
+        if (callbackResult.configured() && callbackResult.ok()) {
             return CommandResult.success("flag 已回传到你的 Ret2Shell 靶机页面，请回浏览器复制提交");
+        }
+        if (fallbackToPlayerMessage) {
+            return CommandResult.success("flag 回传到靶机页面失败，已改为游戏内私信发送。你的 flag: " + registration.flag);
         }
         return CommandResult.success("你的 flag: " + registration.flag);
     }
 
-    private ClaimCallbackResult deliverFlagToCallback(CsaFlagBridgeState.Registration registration, ServerPlayer player, BlockPos pos) {
+    private ClaimCallbackResult deliverFlagToCallback(
+        CsaFlagBridgeState.Registration registration,
+        String playerUuid,
+        String playerName,
+        BlockPos pos,
+        String reason
+    ) {
         if (!config.enableClaimCallback || registration.claimCallbackUrl.isBlank() || registration.claimCallbackSecret.isBlank()) {
             return ClaimCallbackResult.notConfigured();
         }
@@ -250,11 +305,14 @@ public final class FlagBridgeService {
             payload.put("token", registration.token);
             payload.put("flag", registration.flag);
             payload.put("team_id", registration.teamId);
-            payload.put("player_uuid", player.getUUID().toString());
-            payload.put("player_name", player.getName().getString());
-            payload.put("x", pos.getX());
-            payload.put("y", pos.getY());
-            payload.put("z", pos.getZ());
+            payload.put("player_uuid", playerUuid);
+            payload.put("player_name", playerName);
+            payload.put("reason", reason == null ? "" : reason);
+            if (pos != null) {
+                payload.put("x", pos.getX());
+                payload.put("y", pos.getY());
+                payload.put("z", pos.getZ());
+            }
 
             HttpRequest request = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofMillis(config.claimCallbackTimeoutMillis))
@@ -289,6 +347,9 @@ public final class FlagBridgeService {
     }
 
     private boolean bypassesClaimLimits(ServerPlayer player) {
+        if (player == null) {
+            return false;
+        }
         return server.getPlayerList().isOp(player.getGameProfile());
     }
 

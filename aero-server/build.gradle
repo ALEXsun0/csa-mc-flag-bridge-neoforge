@@ -1,0 +1,32 @@
+ext {
+    mod_id = 'csa_aero_bridge_server'
+    mod_name = 'CSA Aero Bridge Server'
+    mod_description = 'Server-side Create Aeronautics stable-cruise certification addon for CSA Flag Bridge.'
+    mod_license = 'MIT'
+}
+
+base {
+    archivesName = mod_id
+}
+
+dependencies {
+    compileOnly project(':aero')
+    compileOnly project(':server')
+
+    def serverModsDir = rootProject.file('../dist/mc-air2top-server/mods')
+    def sableJar = new File(serverModsDir, 'sable-neoforge-1.21.1-1.2.2.jar')
+    if (sableJar.exists()) {
+        compileOnly files(sableJar)
+        def companionJar = layout.buildDirectory.file('compileOnly/sable-companion-common-1.21.1-1.6.0.jar')
+        def extractSableCompanion = tasks.register('extractSableCompanionJar', Copy) {
+            from(zipTree(sableJar)) {
+                include 'META-INF/jarjar/sable-companion-common-*.jar'
+                eachFile { path = name }
+                includeEmptyDirs = false
+            }
+            into companionJar.get().asFile.parentFile
+        }
+        compileJava.dependsOn extractSableCompanion
+        compileOnly files(companionJar)
+    }
+}

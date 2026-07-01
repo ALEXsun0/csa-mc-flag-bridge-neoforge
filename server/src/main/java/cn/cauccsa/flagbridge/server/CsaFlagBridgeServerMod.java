@@ -1,6 +1,7 @@
 package cn.cauccsa.flagbridge.server;
 
 import java.io.IOException;
+import java.util.UUID;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
@@ -85,5 +86,26 @@ public final class CsaFlagBridgeServerMod {
 
     public static FlagBridgeService service() {
         return service;
+    }
+
+    public static boolean isUuidBound(UUID playerUuid) {
+        FlagBridgeService current = service;
+        return current != null && current.isUuidBound(playerUuid);
+    }
+
+    public static FlagBridgeService.CommandResult claimForUuid(UUID playerUuid, String reason) {
+        FlagBridgeService current = service;
+        if (current == null) {
+            return FlagBridgeService.CommandResult.failure("CSA Flag Bridge 服务还没有初始化完成");
+        }
+        return current.claimForUuid(playerUuid, reason);
+    }
+
+    public static FlagBridgeService.CommandResult claimForUuid(UUID playerUuid, String playerName, String reason, BlockPos pos) {
+        FlagBridgeService current = service;
+        if (current == null) {
+            return FlagBridgeService.CommandResult.failure("CSA Flag Bridge 服务还没有初始化完成");
+        }
+        return current.claimForUuid(playerUuid, playerName, reason, pos);
     }
 }
